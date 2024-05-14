@@ -4,7 +4,7 @@ local cmake_premake = p.modules.cmake_premake
 
 local io = require("io")
 
-cmake_premake._VERSION = 1.0
+cmake_premake._VERSION = 1.1
 
 p.api.register {
   name = "executable_sufffix",
