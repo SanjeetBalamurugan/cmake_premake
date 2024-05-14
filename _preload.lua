@@ -21,7 +21,7 @@ newaction {
   shortname = "cmake-premake",
   description = "Convert CMakeLists.txt to a premake5.lua file",
   onStart = function()
-    print("Starting translate-cmake")
+    print("Starting translate-cmake v" .. cmake_premake._VERSION .. ".0")
   end,
 
   execute = function()
