@@ -5,9 +5,11 @@ This tool makes it easy to use both CMake and Premake projects by converting CMa
 ## How to use this CMake converter
 
  1. Clone this repository or add this repository as a sub-module to a folder in premake's search path.
- 2. Include "**cmake_premake.lua**" file in your premake5 by adding the following lines in the beginning of premake file `local cmake_premake = require "/path/to/repo/cmake_premake"`.
+ 2. Include "**cmake_premake.lua**" file in your premake5 by adding the following lines in the beginning of premake file `local cmake_premake = require "path.to.repo.cmake_premake"`.
  3. To include cmake projects, add `cmake_premake.include_proj(/path/to/cmake_project)` below where you define the workspace.
- 4. Thats all! Just generate the project now using premake.
+ 4. Then run "**premake5 translate-cmake**"
+ 5. At last include the project by adding `include 'exported-project-name.lua'` at the end of the premake file
+ 5. Thats all! Just generate the project now using premake.
 
 ### Example Premake file
 ```lua
@@ -39,6 +41,9 @@ filter "configurations:Debug"
 filter "configurations:Release"
     defines { "NDEBUG" }
     optimize "On"
+
+-- including this afer conversion
+include "cmake_project.lua"
 ```
 
 ## Contributing
