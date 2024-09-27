@@ -1,4 +1,6 @@
 # CMake-Premake
+
+⚠️ Windows is not supported for now!!
 ## Description
 This tool makes it easy to use both CMake and Premake projects by converting CMakeLists.txt files into Premake5.lua files. With this converter, we can use libraries that have a CMake build system in our Premake project.
 
