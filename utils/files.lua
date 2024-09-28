@@ -10,54 +10,14 @@ function files.file_exists(file_name)
   return f ~= nil
 end
 
-function files.file_contents(file_name)
-  if not files.file_exists(file_name) then
-    print(file_name.." doesn't exist")
-    local os = require("os")
-    os.exit(1)
-  end
-
-  local tmp = ""
-  for line in io.lines(file_name) do
-    if tmp == "" then
-      tmp = tmp..line
-    else
-      tmp = tmp..line.."\n"
-    end
-  end
-
-  return tmp
-end
-
-function files.file_lines(file_name)
-  if not files.file_exists(file_name) then
-    print(file_name.." doesn't exist")
-    local os = require("os")
-    os.exit(1)
-  end
-
+function files.getLines(file)
+  if not files.file_exists(file) then return {} end
   local lines = {}
-
-  for line in io.lines(file_name) do
-    lines[#lines+1] = line
+  for line in io.lines(file) do
+    lines[#lines + 1] = line
   end
 
   return lines
-end
-
-function files.file_contains(file_name, str)
-  local lines = files.file_lines(file_name)
-  if str:sub(#str, #str) == "\n" then
-    str = str:sub(1, #str-1)
-  end
-
-  for _, line in ipairs(lines) do
-    if line == str then
-      return true
-    end
-  end
-
-  return false
 end
 
 return files
