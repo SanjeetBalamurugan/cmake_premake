@@ -3,17 +3,63 @@ local p = premake
 local cmake_premake = p.modules.cmake_premake
 local token_type = p.modules.cmake_premake.TokenType
 local utils = p.modules.cmake_premake.utils
+local cmake_projects = {}
+local variables = {}
 
-function cmake_premake.cmake_converter(tokens, path_table)
-  local premake_script = ""
-  local includes = ""
-  local variables = {}
+local parsed = {}
 
-  if utils:is_unix() then
-    variables["PROJECT_SOURCE_DIR"] = path_table:go_back():to_unix_path(true)
+local cmake_function = { "cmake_minimum_required",
+  "project", "file", "add_executable",
+  "target_compile_options",
+  "target_include_directories",
+  -- "find_package", -- TODO: Need to implement,
+  "set",
+  -- "include"
+}
+
+function cmake_premake.cmake_parser(tokens, startIdx)
+  if tokens[startIdx].type == token_type.KEYWORD
+      and table.contains(cmake_function, tokens[startIdx].value) then
+    local keyword_name = tokens[startIdx].value
+    local parameters = {}
+
+    for i = startIdx + 1, #tokens do
+      if tokens[i].type == token_type.CLOSECURLY then
+        startIdx = startIdx + 1
+        break
+      elseif tokens[i].type ~= token_type.OPENCURLY then
+        table.insert(parameters, tokens[i].value)
+      end
+      startIdx = startIdx + 1
+    end
+
+    table.insert(parsed, {
+      name = keyword_name,
+      parameters = parameters
+    })
   else
-    variables["PROJECT_SOURCE_DIR"] = path_table:go_back():to_windows_path(true)
+    startIdx = startIdx + 1
   end
+
+  return startIdx
+end
+
+function test_print()
+  for key, value in pairs(parsed) do
+    for k, v in pairs(value) do
+      print("Key:" .. k)
+      for _, j in ipairs(v) do
+        print("     " .. j)
+      end
+    end
+    print("\n")
+  end
+end
+
+function cmake_premake.cmake_converter(tokens)
+  local premake_script = ""
+  local index = 1
+
   -- add an indent to the string
   local function add_indent(indent_level)
     return string.rep("  ", indent_level)
@@ -25,139 +71,122 @@ function cmake_premake.cmake_converter(tokens, path_table)
     premake_script = premake_script .. add_indent(indent_level) .. line .. "\n"
   end
 
-  local function addInclude(line)
-    includes = includes .. line .. "\n"
-  end
-
-  local function addVariable(at)
-    local variable_name = tokens[at].value
-    local is_end_curly = false
-    local values = {}
-
-    at = at + 1
-    while not is_end_curly do
-      local val = tokens[at].value
-      if val == ")" then
-        is_end_curly = true
-        goto continue
-      elseif val == "" then
-        goto continue
+  local function add_files(files)
+    addLine("files {")
+    for _, filevar in ipairs(files) do
+      local pfile = {}
+      for match in string.gmatch(filevar, "${(.-)}") do
+        table.insert(pfile, match)
       end
-
-      table.insert(values, val)
-      ::continue::
-      at = at + 1
-    end
-
-    variables[variable_name] = values
-  end
-
-  local function looped(at, is_recursive_search)
-    local files = ""
-    local is_end_curly = false
-    while not is_end_curly do
-      local val = tokens[at].value
-      if val == ")" then
-        files = files .. '}'
-        is_end_curly = true
-      elseif val == "" then
-        goto continue
-      elseif val:sub(1, 2) == '${' then
-        local match = val:match("%${(.-)}")
-        if utils.array_contains(variables, match) then
-          if type(variables[match]) == "table" then
-            for _, value in ipairs(variables[match]) do
-              files = files .. '"' .. value .. val:sub(#value + 5) .. '",'
-            end
-          else
-            files = files .. '"' .. variables[match] .. val:sub(#match + 5) .. '",'
+      local name = table.concat(pfile, " ")
+      for _, v in ipairs(variables) do
+        if v.type == "file" and v.name == name then
+          for _, file in pairs(v.files) do
+            addLine('"' .. file .. '",')
           end
         end
-      else
-        if is_recursive_search then
-          val = val:gsub("%*", "**")
-        end
-        files = files .. '"' .. val .. '",'
       end
-      ::continue::
-      at = at + 1
     end
-    return files
+    addLine("}")
   end
 
-  for i, token in ipairs(tokens) do
-    if token.type == token_type.COMMENT or token.type == token_type.WHITESPACE then
+  local new_tokens = {}
+  for _, token in ipairs(tokens) do
+    if token.type == token_type.WHITESPACE or token.type == token_type.COMMENT then
       goto continue
-    elseif token.type == token_type.KEYWORD then
-      local value = token.value
-      if value == "cmake_minimum_required" then
-        addLine("-- " .. value .. " " .. tokens[i + 2].value .. " " .. tokens[i + 4].value)
-      elseif value == "project" then
-        addLine("project \"" .. tokens[i + 2].value .. "\"")
-        p.modules.cmake_premake.curr_proj = tokens[i + 2].value
-        indent_level = 1
-        addLine('kind "ConsoleApp"')
-
-        local language = tokens[i + 3]
-        if language == "C" or language == "CXX" then
-          if language == "CXX" then
-            language = "C++"
-          end
-          addLine("language \"" .. language .. "\"")
-        else
-          addLine("language \"C++\"")
-        end
-      elseif value == "set" then
-        local set_var = tokens[i + 2].value
-        if set_var == "CMAKE_CXX_STANDARD" then
-          addLine('cppdialect "C++' .. tokens[i + 4].value .. '"')
-        else
-          addVariable(i + 2)
-        end
-      elseif value == "file" then
-        local is_recursive_search = false
-        if tokens[i + 2].value == "GLOB_RECURSE" then
-          is_recursive_search = true
-        end
-        local files = "files {" .. looped(i + 3, is_recursive_search)
-        addLine(files)
-      elseif value == "add_executable" then
-        local at = i + 3
-        if tokens[at + 2].value == "PUBLIC" or tokens[at].value == "PRIVATE" then
-          at = at + 1
-        end
-        local files = "files {" .. looped(at, false)
-        addLine(files)
-      elseif value == "include_directories" or value == "target_include_directories" then
-        local at = i + 2
-        if tokens[at + 2].value == "PUBLIC" or tokens[at].value == "PRIVATE" then
-          at = at + 3
-        end
-        local include_directories = "includedirs {" .. looped(at, false)
-
-        addLine(include_directories)
-      elseif value == "add_subdirectory" then
-        addInclude('include "' .. tokens[i + 2].value .. '"')
-      elseif value == "target_link_libraries" then
-        local at = i + 4
-        if tokens[at].value == "PUBLIC" or tokens[at].value == "PRIVATE" then
-          at = at + 1
-        end
-        local target_link_libraries = "links {" .. looped(at)
-        addLine(target_link_libraries)
-      elseif value == "target_compile_options" then
-        local at = i + 4
-        if tokens[at].value == "PUBLIC" or tokens[at].value == "PRIVATE" then
-          at = at + 1
-        end
-
-        local target_compile_options = "buildoptions {" .. looped(at, false)
-        addLine(target_compile_options)
-      end
     end
+    table.insert(new_tokens, token)
     ::continue::
   end
-  premake_script = premake_script .. includes
+
+  while index <= #new_tokens do
+    index = cmake_premake.cmake_parser(new_tokens, index)
+  end
+
+  for _, t in ipairs(parsed) do
+    local name = t.name
+    local parameters = t.parameters
+
+    tmp = ""
+    if name == "cmake_minimum_required" then
+      for _, parameter in ipairs(parameters) do
+        tmp = tmp .. parameter .. " "
+      end
+
+      addLine("-- cmake_minimum_required " .. tmp)
+      tmp = " "
+      -- elseif name == "project" then
+      --   table.insert(cmake_projects, {
+      --     name = parameters[1]
+      --   })
+    elseif name == "file" then
+      local isGlobRecursive = false
+      local variable_name = parameters[2]
+      local files = {}
+
+      for i = 3, #parameters do
+        table.insert(files, parameters[i])
+      end
+
+      if parameters[1] == "GLOB_RECURSE" then
+        isGlobRecursive = true
+      end
+      table.insert(variables, {
+        name = variable_name,
+        type = "file",
+        files = files
+      })
+    elseif name == "add_executable" then
+      local exec_name = parameters[1]
+      local files = {}
+
+      for i = 2, #parameters do
+        table.insert(files, parameters[i])
+      end
+
+      table.insert(cmake_projects, {
+        name = exec_name,
+        files = files,
+        target_compile_options = {},
+        target_include_directories = {}
+      })
+    elseif name == "target_compile_options" then
+      exec_name = parameters[1]
+      compile_options = {}
+
+      for i = 2, #parameters do
+        table.insert(compile_options, parameters[i])
+      end
+
+      for _, prj in ipairs(cmake_projects) do
+        if prj.name == exec_name then
+          prj.target_compile_options = compile_options
+        end
+      end
+    elseif name == "target_include_directories" then
+      exec_name = parameters[1]
+      include_dirs = {}
+
+      for i = 2, #parameters do
+        table.insert(include_dirs, parameters[i])
+      end
+
+      for _, prj in ipairs(cmake_projects) do
+        if prj.name == exec_name then
+          prj.target_include_directories = include_dirs
+        end
+      end
+    end
+  end
+
+  print(#variables)
+
+  for _, project in ipairs(cmake_projects) do
+    addLine("project" .. " '" .. project.name .. "'")
+    add_files(project.files)
+  end
+
+  print(premake_script)
   return premake_script
 end
 

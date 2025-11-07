@@ -4,7 +4,7 @@ local cmake_premake = p.modules.cmake_premake
 
 local io = require("io")
 
-cmake_premake._VERSION = 1.0
+cmake_premake._VERSION = 1.1
 
 p.api.register {
   name = "executable_sufffix",
@@ -12,35 +12,36 @@ p.api.register {
   kind = "string"
 }
 
+local args = _ARGS
+local includes = ""
+local main_script = _MAIN_SCRIPT
+
 newaction {
   trigger = "translate-cmake",
   shortname = "cmake-premake",
   description = "Convert CMakeLists.txt to a premake5.lua file",
-  onStart = function ()
-    print("Starting translate-cmake")
+  onStart = function()
+    print("Starting translate-cmake v" .. cmake_premake._VERSION .. ".0")
   end,
 
-  execute = function ()
-    for _, project in ipairs(cmake_premake.cmake_projects) do
-      local tokens = cmake_premake.cmake_tokenizer(project)
-      local path_table = cmake_premake.path.create_path(project)
+  execute = function()
+    local projects = cmake_premake.cmake_projects
 
-      local premake_file = cmake_premake.cmake_converter(tokens, path_table)
-      local out_file = io.open(cmake_premake.curr_proj..".lua", "w+")
-      out_file:write(premake_file)
-      out_file:close()
-      print("Converted project "..cmake_premake.curr_proj.." to "..cmake_premake.curr_proj..".lua")
-
-      include(cmake_premake.curr_proj..".lua")
+    for _, project in ipairs(projects) do
+      local cmake_lists = cmake_premake.files.getLines(project)
+      print(cmake_lists, project)
+      local tokens = cmake_premake.cmake_tokenizer(cmake_lists)
+      local final = cmake_premake.cmake_converter(tokens)
     end
   end,
 
-  onEnd = function ()
+  onEnd = function()
     print("Ending translate-cmake")
   end
 }
 
 -- utils
+include "utils/files.lua"
 include "utils/utils.lua"
 include "utils/path.lua"
 
