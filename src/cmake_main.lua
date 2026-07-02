@@ -3,27 +3,6 @@ local cmake_premake = p.modules.cmake_premake
 
 cmake_premake.cmake_projects = {}
 
-function string.split(inputstr, sep)
-  if sep == nil then
-    sep = "%s"
-  end
-  local t = {}
-  for str in string.gmatch(inputstr, "([^" .. sep .. "]+)") do
-    table.insert(t, str)
-  end
-  return t
-end
-
-function table.contains(t, value)
-  for _, v in ipairs(t) do
-    if v == value then
-      return true
-    end
-  end
-
-  return false
-end
-
 function cmake_premake.include_proj(project_dir)
   if project_dir:sub(1, 1) == "." and project_dir ~= _WORKING_DIR then
     project_dir = project_dir .. "/"

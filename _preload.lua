@@ -40,6 +40,9 @@ newaction {
   end
 }
 
+-- Utils:Extends
+include "utils/extends.lua"
+
 -- utils
 include "utils/files.lua"
 include "utils/utils.lua"

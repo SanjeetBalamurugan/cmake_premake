@@ -18,31 +18,6 @@ local utils = p.modules.cmake_premake.utils
 -- Define common mount point prefixes
 local mount_point_prefixes = { "mnt", "media", "run/media" }
 
-function string.split(inputstr, sep)
-    if sep == nil then
-        sep = "%s"
-    end
-    local t = {}
-    for str in string.gmatch(inputstr, "([^" .. sep .. "]+)") do
-        table.insert(t, str)
-    end
-    return t
-end
-
-function string.contains(inputstr, delim)
-  if delim == nil then
-    return false
-  end
-
-  for c in inputstr:gmatch(".") do
-    if c == delim then
-      return true
-    end
-  end
-
-  return false
-end
-
 function path.create_path(path_str)
   local dirs = {}
   local drive = ""
