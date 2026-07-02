@@ -3,10 +3,6 @@ local p = premake
 local cmake_premake = p.modules.cmake_premake
 local token_type = p.modules.cmake_premake.TokenType
 local utils = p.modules.cmake_premake.utils
-local cmake_projects = {}
-local variables = {}
-
-local parsed = {}
 
 local cmake_function = { "cmake_minimum_required",
   "project", "file", "add_executable",
@@ -17,173 +13,236 @@ local cmake_function = { "cmake_minimum_required",
   -- "include"
 }
 
-function cmake_premake.cmake_parser(tokens, startIdx)
-  if tokens[startIdx].type == token_type.KEYWORD
-      and table.contains(cmake_function, tokens[startIdx].value) then
-    local keyword_name = tokens[startIdx].value
+function cmake_premake.cmake_parser(tokens, startIdx, parsed)
+  local token = tokens[startIdx]
+
+  if token.type == token_type.KEYWORD and table.contains(cmake_function, token.value) then
+    local keyword_name = token.value
     local parameters = {}
 
-    for i = startIdx + 1, #tokens do
-      if tokens[i].type == token_type.CLOSECURLY then
-        startIdx = startIdx + 1
+    local i = startIdx + 1
+    while i <= #tokens do
+      local t = tokens[i]
+      if t.type == token_type.CLOSECURLY then
+        i = i + 1
         break
-      elseif tokens[i].type ~= token_type.OPENCURLY then
-        table.insert(parameters, tokens[i].value)
+      elseif t.type ~= token_type.OPENCURLY then
+        table.insert(parameters, t.value)
       end
-      startIdx = startIdx + 1
+      i = i + 1
     end
 
     table.insert(parsed, {
       name = keyword_name,
       parameters = parameters
     })
-  else
-    startIdx = startIdx + 1
+
+    return i
   end
 
-  return startIdx
+  return startIdx + 1
 end
 
-function test_print()
-  for key, value in pairs(parsed) do
-    for k, v in pairs(value) do
-      print("Key:" .. k)
-      for _, j in ipairs(v) do
-        print("     " .. j)
-      end
+function cmake_premake.test_print(parsed)
+  for _, entry in ipairs(parsed) do
+    print("Key:" .. entry.name)
+    for _, param in ipairs(entry.parameters) do
+      print("     " .. param)
     end
     print("\n")
   end
 end
 
-function cmake_premake.cmake_converter(tokens)
-  local premake_script = ""
-  local index = 1
+local function strip_quotes(value)
+  local stripped = value:gsub('^"(.*)"$', "%1")
+  return stripped
+end
 
-  -- add an indent to the string
-  local function add_indent(indent_level)
-    return string.rep("  ", indent_level)
+local visibility_keywords = { "PUBLIC", "PRIVATE", "INTERFACE" }
+
+local function resolve_file_variable(filevar, variables)
+  local name_parts = {}
+  for match in string.gmatch(filevar, "%${(.-)}") do
+    table.insert(name_parts, match)
+  end
+  local name = table.concat(name_parts, " ")
+
+  for _, v in ipairs(variables) do
+    if v.type == "file" and v.name == name then
+      return v.files
+    end
   end
 
+  return nil
+end
+
+local function strip_noise_tokens(tokens)
+  local out = {}
+  for _, token in ipairs(tokens) do
+    if token.type ~= token_type.WHITESPACE and token.type ~= token_type.COMMENT then
+      table.insert(out, token)
+    end
+  end
+  return out
+end
+
+function cmake_premake.cmake_converter(tokens)
+  local premake_script = ""
   local indent_level = 0
+
+  local parsed = {}
+  local variables = {}
+  local cmake_projects = {}
+
+  local function add_indent(level)
+    return string.rep("  ", level)
+  end
 
   local function addLine(line)
     premake_script = premake_script .. add_indent(indent_level) .. line .. "\n"
   end
 
-  local function add_files(files)
+  local function add_files(files, variables)
     addLine("files {")
+    indent_level = indent_level + 1
     for _, filevar in ipairs(files) do
-      local pfile = {}
-      for match in string.gmatch(filevar, "${(.-)}") do
-        table.insert(pfile, match)
-      end
-      local name = table.concat(pfile, " ")
-      for _, v in ipairs(variables) do
-        if v.type == "file" and v.name == name then
-          for _, file in pairs(v.files) do
-            addLine('"' .. file .. '",')
-          end
+      local resolved = resolve_file_variable(filevar, variables)
+      if resolved then
+        for _, file in ipairs(resolved) do
+          addLine('"' .. strip_quotes(file) .. '",')
         end
+      else
+        addLine('"' .. strip_quotes(filevar) .. '",')
       end
     end
+    indent_level = indent_level - 1
     addLine("}")
   end
 
-  local new_tokens = {}
-  for _, token in ipairs(tokens) do
-    if token.type == token_type.WHITESPACE or token.type == token_type.COMMENT then
-      goto continue
+  local handlers = {}
+
+  handlers.cmake_minimum_required = function(parameters)
+    addLine("-- cmake_minimum_required " .. table.concat(parameters, " "))
+  end
+
+  handlers.project = function(parameters)
+  end
+
+  handlers.file = function(parameters)
+    local mode = parameters[1]
+    local variable_name = parameters[2]
+    local files = {}
+
+    for i = 3, #parameters do
+      table.insert(files, parameters[i])
     end
-    table.insert(new_tokens, token)
-    ::continue::
+
+    table.insert(variables, {
+      name = variable_name,
+      type = "file",
+      is_glob_recursive = (mode == "GLOB_RECURSE"),
+      files = files
+    })
   end
 
-  while index <= #new_tokens do
-    index = cmake_premake.cmake_parser(new_tokens, index)
+  handlers.add_executable = function(parameters)
+    local exec_name = parameters[1]
+    local files = {}
+
+    for i = 2, #parameters do
+      table.insert(files, parameters[i])
+    end
+
+    table.insert(cmake_projects, {
+      name = exec_name,
+      files = files,
+      target_compile_options = {},
+      target_include_directories = {}
+    })
   end
 
-  for _, t in ipairs(parsed) do
-    local name = t.name
-    local parameters = t.parameters
-
-    tmp = ""
-    if name == "cmake_minimum_required" then
-      for _, parameter in ipairs(parameters) do
-        tmp = tmp .. parameter .. " "
+  local function find_project(exec_name)
+    for _, prj in ipairs(cmake_projects) do
+      if prj.name == exec_name then
+        return prj
       end
+    end
+    return nil
+  end
 
-      addLine("-- cmake_minimum_required " .. tmp)
-      tmp = " "
-      -- elseif name == "project" then
-      --   table.insert(cmake_projects, {
-      --     name = parameters[1]
-      --   })
-    elseif name == "file" then
-      local isGlobRecursive = false
-      local variable_name = parameters[2]
-      local files = {}
+  handlers.target_compile_options = function(parameters)
+    local exec_name = parameters[1]
+    local prj = find_project(exec_name)
+    if not prj then
+      return
+    end
 
-      for i = 3, #parameters do
-        table.insert(files, parameters[i])
-      end
-
-      if parameters[1] == "GLOB_RECURSE" then
-        isGlobRecursive = true
-      end
-      table.insert(variables, {
-        name = variable_name,
-        type = "file",
-        files = files
-      })
-    elseif name == "add_executable" then
-      local exec_name = parameters[1]
-      local files = {}
-
-      for i = 2, #parameters do
-        table.insert(files, parameters[i])
-      end
-
-      table.insert(cmake_projects, {
-        name = exec_name,
-        files = files,
-        target_compile_options = {},
-        target_include_directories = {}
-      })
-    elseif name == "target_compile_options" then
-      exec_name = parameters[1]
-      compile_options = {}
-
-      for i = 2, #parameters do
+    local compile_options = {}
+    for i = 2, #parameters do
+      if not table.contains(visibility_keywords, parameters[i]) then
         table.insert(compile_options, parameters[i])
       end
+    end
+    prj.target_compile_options = compile_options
+  end
 
-      for _, prj in ipairs(cmake_projects) do
-        if prj.name == exec_name then
-          prj.target_compile_options = compile_options
-        end
-      end
-    elseif name == "target_include_directories" then
-      exec_name = parameters[1]
-      include_dirs = {}
+  handlers.target_include_directories = function(parameters)
+    local exec_name = parameters[1]
+    local prj = find_project(exec_name)
+    if not prj then
+      return
+    end
 
-      for i = 2, #parameters do
-        table.insert(include_dirs, parameters[i])
+    local include_dirs = {}
+    for i = 2, #parameters do
+      if not table.contains(visibility_keywords, parameters[i]) then
+        table.insert(include_dirs, strip_quotes(parameters[i]))
       end
+    end
+    prj.target_include_directories = include_dirs
+  end
 
-      for _, prj in ipairs(cmake_projects) do
-        if prj.name == exec_name then
-          prj.target_include_directories = include_dirs
-        end
-      end
+  local new_tokens = strip_noise_tokens(tokens)
+
+  local index = 1
+  while index <= #new_tokens do
+    index = cmake_premake.cmake_parser(new_tokens, index, parsed)
+  end
+
+  for _, call in ipairs(parsed) do
+    local handler = handlers[call.name]
+    if handler then
+      handler(call.parameters)
     end
   end
 
-  print(#variables)
-
   for _, project in ipairs(cmake_projects) do
-    addLine("project" .. " '" .. project.name .. "'")
-    add_files(project.files)
+    addLine("project '" .. project.name .. "'")
+    indent_level = indent_level + 1
+
+    add_files(project.files, variables)
+
+    if #project.target_include_directories > 0 then
+      addLine("includedirs {")
+      indent_level = indent_level + 1
+      for _, dir in ipairs(project.target_include_directories) do
+        addLine('"' .. dir .. '",')
+      end
+      indent_level = indent_level - 1
+      addLine("}")
+    end
+
+    if #project.target_compile_options > 0 then
+      addLine("buildoptions {")
+      indent_level = indent_level + 1
+      for _, opt in ipairs(project.target_compile_options) do
+        addLine('"' .. strip_quotes(opt) .. '",')
+      end
+      indent_level = indent_level - 1
+      addLine("}")
+    end
+
+    indent_level = indent_level - 1
   end
 
   print(premake_script)
