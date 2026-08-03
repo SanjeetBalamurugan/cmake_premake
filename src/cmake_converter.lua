@@ -4,22 +4,23 @@ local cmake_premake = p.modules.cmake_premake
 local token_type = p.modules.cmake_premake.TokenType
 local utils = p.modules.cmake_premake.utils
 
+
 local cmake_function = { "cmake_minimum_required",
-  "project", "file", "add_executable",
-  "target_compile_options",
-  "target_include_directories",
-  -- "find_package", -- TODO: Need to implement,
-  "set",
-  -- "include"
+"project", "file", "add_executable",
+"target_compile_options",
+"target_include_directories",
+-- "find_package", -- TODO: Need to implement,
+"set",
+-- "include"
 }
 
 function cmake_premake.cmake_parser(tokens, startIdx, parsed)
   local token = tokens[startIdx]
-
+  
   if token.type == token_type.KEYWORD and table.contains(cmake_function, token.value) then
     local keyword_name = token.value
     local parameters = {}
-
+    
     local i = startIdx + 1
     while i <= #tokens do
       local t = tokens[i]
@@ -31,15 +32,15 @@ function cmake_premake.cmake_parser(tokens, startIdx, parsed)
       end
       i = i + 1
     end
-
+    
     table.insert(parsed, {
       name = keyword_name,
       parameters = parameters
     })
-
+    
     return i
   end
-
+  
   return startIdx + 1
 end
 
@@ -66,13 +67,13 @@ local function resolve_file_variable(filevar, variables)
     table.insert(name_parts, match)
   end
   local name = table.concat(name_parts, " ")
-
+  
   for _, v in ipairs(variables) do
     if v.type == "file" and v.name == name then
       return v.files
     end
   end
-
+  
   return nil
 end
 
@@ -89,19 +90,19 @@ end
 function cmake_premake.cmake_converter(tokens)
   local premake_script = ""
   local indent_level = 0
-
+  
   local parsed = {}
   local variables = {}
   local cmake_projects = {}
-
+  
   local function add_indent(level)
     return string.rep("  ", level)
   end
-
+  
   local function addLine(line)
     premake_script = premake_script .. add_indent(indent_level) .. line .. "\n"
   end
-
+  
   local function add_files(files, variables)
     addLine("files {")
     indent_level = indent_level + 1
@@ -118,97 +119,15 @@ function cmake_premake.cmake_converter(tokens)
     indent_level = indent_level - 1
     addLine("}")
   end
-
-  local handlers = {}
-
-  handlers.cmake_minimum_required = function(parameters)
-    addLine("-- cmake_minimum_required " .. table.concat(parameters, " "))
-  end
-
-  handlers.project = function(parameters)
-  end
-
-  handlers.file = function(parameters)
-    local mode = parameters[1]
-    local variable_name = parameters[2]
-    local files = {}
-
-    for i = 3, #parameters do
-      table.insert(files, parameters[i])
-    end
-
-    table.insert(variables, {
-      name = variable_name,
-      type = "file",
-      is_glob_recursive = (mode == "GLOB_RECURSE"),
-      files = files
-    })
-  end
-
-  handlers.add_executable = function(parameters)
-    local exec_name = parameters[1]
-    local files = {}
-
-    for i = 2, #parameters do
-      table.insert(files, parameters[i])
-    end
-
-    table.insert(cmake_projects, {
-      name = exec_name,
-      files = files,
-      target_compile_options = {},
-      target_include_directories = {}
-    })
-  end
-
-  local function find_project(exec_name)
-    for _, prj in ipairs(cmake_projects) do
-      if prj.name == exec_name then
-        return prj
-      end
-    end
-    return nil
-  end
-
-  handlers.target_compile_options = function(parameters)
-    local exec_name = parameters[1]
-    local prj = find_project(exec_name)
-    if not prj then
-      return
-    end
-
-    local compile_options = {}
-    for i = 2, #parameters do
-      if not table.contains(visibility_keywords, parameters[i]) then
-        table.insert(compile_options, parameters[i])
-      end
-    end
-    prj.target_compile_options = compile_options
-  end
-
-  handlers.target_include_directories = function(parameters)
-    local exec_name = parameters[1]
-    local prj = find_project(exec_name)
-    if not prj then
-      return
-    end
-
-    local include_dirs = {}
-    for i = 2, #parameters do
-      if not table.contains(visibility_keywords, parameters[i]) then
-        table.insert(include_dirs, strip_quotes(parameters[i]))
-      end
-    end
-    prj.target_include_directories = include_dirs
-  end
-
+  
   local new_tokens = strip_noise_tokens(tokens)
-
+  
   local index = 1
   while index <= #new_tokens do
     index = cmake_premake.cmake_parser(new_tokens, index, parsed)
   end
-
+  
+  local handlers = p.modules.cmake_premake.createHandlers(addLine, cmake_projects)
   for _, call in ipairs(parsed) do
     local handler = handlers[call.name]
     if handler then

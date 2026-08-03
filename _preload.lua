@@ -51,6 +51,7 @@ include "utils/path.lua"
 -- cmake essentials
 include "src/cmake_main.lua"
 include "src/cmake_tokenizer.lua"
+include "src/cmake_handlers.lua"
 include "src/cmake_converter.lua"
 
 return cmake_premake

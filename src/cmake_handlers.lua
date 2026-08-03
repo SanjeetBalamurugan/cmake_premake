@@ -1,0 +1,97 @@
+local p = premake
+
+local cmake_premake = p.modules.cmake_premake
+
+function cmake_premake.createHandlers(addLine, cmake_projects)
+    local handlers = {}
+
+    handlers.cmake_minimum_required = function(parameters)
+        addLine("-- cmake_minimum_required " .. table.concat(parameters, " "))
+    end
+
+    handlers.project = function(parameters)
+    end
+
+    handlers.file = function(parameters)
+        local mode = parameters[1]
+        local variable_name = parameters[2]
+        local files = {}
+
+        for i = 3, #parameters do
+            table.insert(files, parameters[i])
+        end
+
+        table.insert(
+            variables,
+            {
+                name = variable_name,
+                type = "file",
+                is_glob_recursive = (mode == "GLOB_RECURSE"),
+                files = files
+            }
+        )
+    end
+
+    handlers.add_executable = function(parameters)
+        local exec_name = parameters[1]
+        local files = {}
+
+        for i = 2, #parameters do
+            table.insert(files, parameters[i])
+        end
+
+        table.insert(
+            cmake_projects,
+            {
+                name = exec_name,
+                files = files,
+                target_compile_options = {},
+                target_include_directories = {}
+            }
+        )
+    end
+
+    local function find_project(exec_name)
+        for _, prj in ipairs(cmake_projects) do
+            if prj.name == exec_name then
+                return prj
+            end
+        end
+        return nil
+    end
+
+    handlers.target_compile_options = function(parameters)
+        local exec_name = parameters[1]
+        local prj = find_project(exec_name)
+        if not prj then
+            return
+        end
+
+        local compile_options = {}
+        for i = 2, #parameters do
+            if not table.contains(visibility_keywords, parameters[i]) then
+                table.insert(compile_options, parameters[i])
+            end
+        end
+        prj.target_compile_options = compile_options
+    end
+
+    handlers.target_include_directories = function(parameters)
+        local exec_name = parameters[1]
+        local prj = find_project(exec_name)
+        if not prj then
+            return
+        end
+
+        local include_dirs = {}
+        for i = 2, #parameters do
+            if not table.contains(visibility_keywords, parameters[i]) then
+                table.insert(include_dirs, strip_quotes(parameters[i]))
+            end
+        end
+        prj.target_include_directories = include_dirs
+    end
+    return handlers
+end
+
+return cmake_premake
