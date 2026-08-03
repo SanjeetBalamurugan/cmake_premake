@@ -13,6 +13,10 @@ local cmake_function = {
   "target_compile_options",
   "target_include_directories",
   "target_compile_definitions",
+  "target_link_libraries",
+  "if",
+  "else",
+  "endif",
   -- "find_package", -- TODO: Need to implement,
   "set",
   "add_library"
@@ -83,6 +87,28 @@ local function strip_noise_tokens(tokens)
   return out
 end
 
+local condition_filter_map = {
+  WIN32 = "system:windows",
+  APPLE = "system:macosx",
+  UNIX = "system:not windows"
+}
+
+local function map_condition_to_filter(condition)
+  local base = condition_filter_map[condition.var] or ("options:" .. condition.var)
+
+  if not condition.negated then
+    return base
+  end
+
+  if base:match("^system:not ") then
+    return (base:gsub("^system:not ", "system:"))
+  elseif base:match("^system:") then
+    return (base:gsub("^system:", "system:not "))
+  end
+
+  return "not " .. base
+end
+
 function cmake_premake.cmake_converter(tokens)
   local premake_script = ""
   local indent_level = 0
@@ -125,10 +151,22 @@ function cmake_premake.cmake_converter(tokens)
 
   local handlers = p.modules.cmake_premake.createHandlers(addLine, cmake_projects)
   print(pprint.prettyPrint(parsed))
+  local condition_stack = {}
   for _, call in ipairs(parsed) do
-    local handler = handlers[call.name]
-    if handler then
-      handler(call.parameters)
+    if call.name == "if" then
+      table.insert(condition_stack, { var = call.parameters[1], negated = false })
+    elseif call.name == "else" then
+      local top = condition_stack[#condition_stack]
+      if top then
+        top.negated = not top.negated
+      end
+    elseif call.name == "endif" then
+      table.remove(condition_stack)
+    else
+      local handler = handlers[call.name]
+      if handler then
+        handler(call.parameters, condition_stack[#condition_stack])
+      end
     end
   end
 
@@ -166,6 +204,32 @@ function cmake_premake.cmake_converter(tokens)
       end
       indent_level = indent_level - 1
       addLine("}")
+    end
+
+    if #project.target_link_libraries > 0 then
+      addLine("links {")
+      indent_level = indent_level + 1
+      for _, lib in ipairs(project.target_link_libraries) do
+        addLine('"' .. strip_quotes(lib) .. '",')
+      end
+      indent_level = indent_level - 1
+      addLine("}")
+    end
+
+    if #project.conditional_compile_definitions > 0 then
+      for _, entry in ipairs(project.conditional_compile_definitions) do
+        addLine('filter "' .. map_condition_to_filter(entry.condition) .. '"')
+        indent_level = indent_level + 1
+        addLine("defines {")
+        indent_level = indent_level + 1
+        for _, def in ipairs(entry.defines) do
+          addLine('"' .. strip_quotes(def) .. '",')
+        end
+        indent_level = indent_level - 1
+        addLine("}")
+        indent_level = indent_level - 1
+      end
+      addLine('filter {}')
     end
 
     indent_level = indent_level - 1

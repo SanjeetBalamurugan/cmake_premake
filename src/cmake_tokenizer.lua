@@ -56,13 +56,12 @@ function cmake.cmake_tokenizer(cmake_script)
         table.insert(tokens, { type = cmake.TokenType.CLOSECURLY, value = ")" })
         inArgs = false
         break
-      elseif c == " " and inArgs then
-        if #token_curr > 0 then
+      elseif c == " " then
+        if inArgs and #token_curr > 0 then
           table.insert(tokens, { type = cmake.TokenType.IDENTIFIER, value = token_curr })
           token_curr = ""
         end
-
-        table.insert(tokens, { type = cmake.TokenType.WHITESPACE, value = token_curr })
+        table.insert(tokens, { type = cmake.TokenType.WHITESPACE, value = " " })
       else
         token_curr = token_curr .. c
       end

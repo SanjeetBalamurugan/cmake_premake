@@ -6,7 +6,7 @@ local pprint = p.modules.cmake_premake.pprint
 p.modules.cmake_premake.globalVariables = {}
 local GlobalVariables = p.modules.cmake_premake.globalVariables
 
-local visibility_keywords = {"PUBLIC", "PRIVATE", "INTERFACE"}
+local visibility_keywords = { "PUBLIC", "PRIVATE", "INTERFACE" }
 
 local function contains(tbl, value)
     for _, v in ipairs(tbl) do
@@ -90,7 +90,9 @@ function cmake_premake.createHandlers(addLine, cmake_projects)
                 files = files,
                 target_compile_options = {},
                 target_include_directories = {},
-                target_compile_definitions = {}
+                target_compile_definitions = {},
+                target_link_libraries = {},
+                conditional_compile_definitions = {}
             }
         )
     end
@@ -136,7 +138,7 @@ function cmake_premake.createHandlers(addLine, cmake_projects)
         prj.target_include_directories = include_dirs
     end
 
-    handlers.target_compile_definitions = function(parameters)
+    handlers.target_compile_definitions = function(parameters, condition)
         local exec_name = parameters[1]
         local prj = find_project(exec_name)
         if not prj then
@@ -149,7 +151,34 @@ function cmake_premake.createHandlers(addLine, cmake_projects)
                 table.insert(compile_definitions, parameters[i])
             end
         end
-        prj.target_compile_definitions = compile_definitions
+
+        if condition then
+            table.insert(
+                prj.conditional_compile_definitions,
+                {
+                    condition = condition,
+                    defines = compile_definitions
+                }
+            )
+        else
+            prj.target_compile_definitions = compile_definitions
+        end
+    end
+
+    handlers.target_link_libraries = function(parameters)
+        local exec_name = parameters[1]
+        local prj = find_project(exec_name)
+        if not prj then
+            return
+        end
+
+        local links = {}
+        for i = 2, #parameters do
+            if not contains(visibility_keywords, parameters[i]) then
+                table.insert(links, parameters[i])
+            end
+        end
+        prj.target_link_libraries = links
     end
 
     handlers.set = function(parameters)
@@ -237,7 +266,9 @@ function cmake_premake.createHandlers(addLine, cmake_projects)
                 files = files,
                 target_compile_options = {},
                 target_include_directories = {},
-                target_compile_definitions = {}
+                target_compile_definitions = {},
+                target_link_libraries = {},
+                conditional_compile_definitions = {}
             }
         )
     end
