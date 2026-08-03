@@ -29,7 +29,6 @@ newaction {
 
     for _, project in ipairs(projects) do
       local cmake_lists = cmake_premake.files.getLines(project)
-      print(cmake_lists, project)
       local tokens = cmake_premake.cmake_tokenizer(cmake_lists)
       local final = cmake_premake.cmake_converter(tokens)
     end
@@ -44,6 +43,7 @@ newaction {
 include "utils/extends.lua"
 
 -- utils
+include "utils/pprint.lua"
 include "utils/files.lua"
 include "utils/utils.lua"
 include "utils/path.lua"
